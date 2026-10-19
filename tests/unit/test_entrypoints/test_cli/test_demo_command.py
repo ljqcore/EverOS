@@ -98,9 +98,7 @@ def test_launch_interactive_defaults_to_cloud_with_unique_identity(monkeypatch) 
     monkeypatch.delenv(cloud.CLOUD_DEMO_SERVER_URL_ENV, raising=False)
     monkeypatch.setenv(cloud.CLOUD_DEMO_KEY_ENV, "demo-key")
 
-    demo_command._launch_interactive_demo(
-        live=False, server_url=cloud.LIVE_DEMO_SERVER_URL
-    )
+    demo_command._launch_interactive_demo(live=False, server_url=None)
 
     assert captured["interactive"] is True
     assert captured["base_url"] == cloud.CLOUD_API_BASE_URL
@@ -120,14 +118,31 @@ def test_launch_interactive_live_uses_own_cloud_key(monkeypatch) -> None:
     monkeypatch.delenv(cloud.CLOUD_DEMO_SERVER_URL_ENV, raising=False)
     monkeypatch.setenv(cloud.CLOUD_USER_KEY_ENV, "user-key")
 
-    demo_command._launch_interactive_demo(
-        live=True, server_url=cloud.LIVE_DEMO_SERVER_URL
-    )
+    demo_command._launch_interactive_demo(live=True, server_url=None)
 
     # --live bypasses the public relay and hits the platform with the user's key.
     assert captured["base_url"] == cloud.CLOUD_PLATFORM_API_BASE_URL
     assert captured["api_key"] == "user-key"
     assert str(captured["session_id"]).startswith("everos-demo-")
+
+
+def test_launch_interactive_live_uses_explicit_local_server_without_key(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        demo_command,
+        "_load_run_demo_tui",
+        lambda: lambda **kwargs: captured.update(kwargs),
+    )
+    monkeypatch.setenv(cloud.CLOUD_USER_KEY_ENV, "cloud-secret")
+
+    demo_command._launch_interactive_demo(
+        live=True, server_url="http://127.0.0.1:8000"
+    )
+
+    assert captured["base_url"] == "http://127.0.0.1:8000"
+    assert captured["api_key"] == ""
 
 
 def test_loading_demo_tui_disables_kitty_keys_for_ime_compatibility(

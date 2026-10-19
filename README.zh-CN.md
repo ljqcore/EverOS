@@ -244,6 +244,15 @@ curl http://127.0.0.1:8000/health
 capability 均可用。`/health` 检查 provider 配置，不代表模型已经成功加载；
 还需要完成步骤 5 的真实请求。
 
+想用交互式 TUI 操作这台本地服务，可在另一个终端运行：
+
+```bash
+.venv/bin/everos demo --live --server-url http://127.0.0.1:8000
+```
+
+明确指定本机地址后，Demo 不需要 Cloud Key。单独运行 `everos demo` 仍会连接
+公共演示服务。
+
 ### 5. 写入并搜索第一条记忆
 
 > [!NOTE]

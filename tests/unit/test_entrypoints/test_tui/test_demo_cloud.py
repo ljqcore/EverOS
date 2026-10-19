@@ -12,20 +12,20 @@ from everos.entrypoints.tui.demo import cloud
 def test_resolve_cloud_base_url_prefers_explicit_then_env(monkeypatch) -> None:
     monkeypatch.delenv(cloud.CLOUD_DEMO_SERVER_URL_ENV, raising=False)
     assert (
-        cloud.resolve_cloud_base_url(cloud.LIVE_DEMO_SERVER_URL)
+        cloud.resolve_cloud_base_url(None)
         == cloud.CLOUD_API_BASE_URL
     )
 
     monkeypatch.setenv(cloud.CLOUD_DEMO_SERVER_URL_ENV, "https://env.test")
     assert (
-        cloud.resolve_cloud_base_url(cloud.LIVE_DEMO_SERVER_URL) == "https://env.test"
+        cloud.resolve_cloud_base_url(None) == "https://env.test"
     )
 
     assert (
         cloud.resolve_cloud_base_url("https://explicit.test") == "https://explicit.test"
     )
 
-    assert cloud.resolve_live_base_url(cloud.LIVE_DEMO_SERVER_URL) == (
+    assert cloud.resolve_live_base_url(None) == (
         cloud.CLOUD_PLATFORM_API_BASE_URL
     )
     assert cloud.resolve_live_base_url("https://live.test") == "https://live.test"
@@ -86,6 +86,53 @@ def test_add_memory_posts_v2_message_synchronously() -> None:
     assert body["messages"][0]["role"] == "user"
     assert body["messages"][0]["sender_id"] == "everos_demo_abc"
     assert body["messages"][0]["content"] == "我喜欢吃杨梅"
+
+
+def test_local_demo_round_allows_slow_model_requests() -> None:
+    timeouts: list[float] = []
+
+    def fake_request(
+        method: str,
+        path: str,
+        *,
+        base_url: str,
+        api_key: str | None = None,
+        json_body: dict[str, object] | None = None,
+        timeout_seconds: float,
+    ) -> dict[str, object]:
+        timeouts.append(timeout_seconds)
+        if path == "/api/v2/memory/search":
+            return {"data": {"episodes": [], "profiles": []}}
+        return {"data": {}}
+
+    base_url = "http://127.0.0.1:8000"
+    cloud.add_memory(
+        "我上周去游泳了",
+        base_url=base_url,
+        session_id="local-demo",
+        user_id="alice",
+        api_key="",
+        request_json=fake_request,
+    )
+    cloud.flush_memory(
+        base_url=base_url,
+        session_id="local-demo",
+        api_key="",
+        request_json=fake_request,
+    )
+    cloud.search_recall(
+        "我上周去游泳了",
+        "我做了什么？",
+        base_url=base_url,
+        session_id="local-demo",
+        user_id="alice",
+        api_key="",
+        request_json=fake_request,
+        search_attempts=1,
+        settle_seconds=0.0,
+    )
+
+    assert timeouts == [180.0, 180.0, 180.0]
 
 
 def test_flush_memory_forces_extraction() -> None:

@@ -22,6 +22,7 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Callable, Sequence
@@ -30,9 +31,6 @@ from typing import Any
 from everos.component.utils.datetime import get_utc_now
 from everos.entrypoints.tui.demo.data import DemoStory
 
-# Sentinel default for the --server-url option; a different value means the user
-# explicitly pointed the demo somewhere else.
-LIVE_DEMO_SERVER_URL = "http://127.0.0.1:8000"
 LIVE_DEMO_SESSION_ID = "everos-demo-live"
 LIVE_DEMO_USER_ID = "everos_demo_user"
 
@@ -46,6 +44,7 @@ CLOUD_USER_KEY_ENV = "EVEROS_CLOUD_API_KEY"
 DEFAULT_CLOUD_DEMO_KEY = ""
 
 TIMEOUT_SECONDS = 15.0
+LOCAL_TIMEOUT_SECONDS = 180.0
 SEARCH_ATTEMPTS = 8
 SEARCH_INTERVAL_SECONDS = 1.5
 # How far ahead an episode must score to beat a concise profile answer. Profiles
@@ -79,20 +78,36 @@ class CloudAuthError(CloudDemoError):
     """The platform rejected the API key (HTTP 401/403)."""
 
 
-def resolve_cloud_base_url(server_url: str) -> str:
+def resolve_cloud_base_url(server_url: str | None) -> str:
     """Pick the API endpoint: explicit --server-url wins, then env, then default."""
 
-    if server_url != LIVE_DEMO_SERVER_URL:
+    if server_url is not None:
         return server_url
     return os.environ.get(CLOUD_DEMO_SERVER_URL_ENV, CLOUD_API_BASE_URL)
 
 
-def resolve_live_base_url(server_url: str) -> str:
+def resolve_live_base_url(server_url: str | None) -> str:
     """Use the platform for ``--live`` unless the user supplied an override."""
 
-    if server_url != LIVE_DEMO_SERVER_URL:
+    if server_url is not None:
         return server_url
     return CLOUD_PLATFORM_API_BASE_URL
+
+
+def is_local_base_url(base_url: str) -> bool:
+    """Whether a demo endpoint is on this machine and needs no cloud key."""
+
+    return urllib.parse.urlsplit(base_url).hostname in {
+        "127.0.0.1",
+        "localhost",
+        "::1",
+    }
+
+
+def _request_timeout(base_url: str, override: float | None) -> float:
+    if override is not None:
+        return override
+    return LOCAL_TIMEOUT_SECONDS if is_local_base_url(base_url) else TIMEOUT_SECONDS
 
 
 def resolve_demo_key() -> str:
@@ -122,11 +137,12 @@ def add_memory(
     user_id: str,
     api_key: str,
     request_json: Callable[..., dict[str, Any]] | None = None,
-    timeout_seconds: float = TIMEOUT_SECONDS,
+    timeout_seconds: float | None = None,
 ) -> None:
     """Write one user message to the v2 session buffer. Blocking."""
 
     request = request_json or _request_json
+    timeout_seconds = _request_timeout(base_url, timeout_seconds)
     timestamp_ms = int(get_utc_now().timestamp() * 1000)
     response = request(
         "POST",
@@ -159,11 +175,12 @@ def flush_memory(
     session_id: str,
     api_key: str,
     request_json: Callable[..., dict[str, Any]] | None = None,
-    timeout_seconds: float = TIMEOUT_SECONDS,
+    timeout_seconds: float | None = None,
 ) -> None:
     """Force extraction of the session into episodes/facts. Blocking."""
 
     request = request_json or _request_json
+    timeout_seconds = _request_timeout(base_url, timeout_seconds)
     response = request(
         "POST",
         "/api/v2/memory/flush",
@@ -190,7 +207,7 @@ def search_recall(
     search_interval_seconds: float = SEARCH_INTERVAL_SECONDS,
     settle_seconds: float = SEARCH_SETTLE_SECONDS,
     min_relevance_score: float = MIN_RELEVANCE_SCORE,
-    timeout_seconds: float = TIMEOUT_SECONDS,
+    timeout_seconds: float | None = None,
 ) -> DemoStory | None:
     """Search the query, polling while indexing catches up.
 
@@ -210,6 +227,7 @@ def search_recall(
     """
 
     request = request_json or _request_json
+    timeout_seconds = _request_timeout(base_url, timeout_seconds)
     payload = {
         "query": query,
         "user_id": user_id,

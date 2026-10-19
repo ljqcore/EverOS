@@ -42,6 +42,17 @@ everos demo --live
 `--live` bypasses the relay and runs the same flow directly against the platform
 with your own key.
 
+To run the interactive flow against a local EverOS server, start the server
+with your local LLM and embedding configuration, then run:
+
+```bash
+everos demo --live --server-url http://127.0.0.1:8000
+```
+
+An explicit loopback URL uses the local server without a Cloud key. Local
+model requests have a longer timeout because loading and extracting on a small
+GPU can take longer than a hosted API call.
+
 ## Static Previews
 
 For non-interactive shells or a copyable preview (no input box, no network):

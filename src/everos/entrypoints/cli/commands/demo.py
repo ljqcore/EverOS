@@ -49,17 +49,17 @@ def register(parent: typer.Typer) -> None:
         live: bool = typer.Option(
             False,
             "--live",
-            help="Use your own EverOS Cloud API key (env EVEROS_CLOUD_API_KEY).",
+            help="Use your Cloud API key, or connect to a local --server-url without a key.",
         ),
         cloud_mode: bool = typer.Option(
             False,
             "--cloud",
             help="Run against EverOS Cloud with the demo key (this is the default).",
         ),
-        server_url: str = typer.Option(
-            cloud.LIVE_DEMO_SERVER_URL,
+        server_url: str | None = typer.Option(
+            None,
             "--server-url",
-            help="Override the EverOS Cloud API base URL.",
+            help="Override the demo API base URL (for example, a local server).",
         ),
         verbose: bool = typer.Option(
             False,
@@ -85,12 +85,13 @@ def register(parent: typer.Typer) -> None:
 
 
 def _launch_interactive_demo(
-    *, live: bool, server_url: str, user_label: str = "you"
+    *, live: bool, server_url: str | None, user_label: str = "you"
 ) -> None:
-    """Launch the cloud-platform interactive TUI.
+    """Launch the interactive TUI against the selected API server.
 
     The default mode talks to the credential-injecting public relay. ``--live``
-    bypasses the relay and uses the user's own platform key directly.
+    bypasses the relay and uses the user's own platform key directly when
+    targeting Cloud. A local server needs no Cloud key.
     """
 
     run_demo_tui = _load_run_demo_tui()
@@ -100,7 +101,12 @@ def _launch_interactive_demo(
         else cloud.resolve_cloud_base_url(server_url)
     )
     session_id, user_id = cloud.new_demo_identity()
-    api_key = cloud.resolve_user_key() if live else cloud.resolve_demo_key()
+    if cloud.is_local_base_url(base_url):
+        api_key = ""
+    elif live:
+        api_key = cloud.resolve_user_key()
+    else:
+        api_key = cloud.resolve_demo_key()
 
     run_demo_tui(
         interactive=True,
