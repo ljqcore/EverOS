@@ -1,0 +1,31 @@
+# Copy this file to a dedicated memory root after `everos init --root`.
+# Unspecified settings inherit src/everos/config/default.toml.
+
+[llm]
+model = "qwen2.5:3b"
+api_key = "ollama" # Local Ollama ignores this nonempty client placeholder.
+base_url = "http://127.0.0.1:11434/v1"
+timeout_seconds = 180.0
+
+[embedding]
+model = "qwen3-embedding:0.6b"
+api_key = "ollama"
+base_url = "http://127.0.0.1:11434/v1"
+timeout_seconds = 90.0
+batch_size = 2
+max_concurrent = 1
+query_max_concurrent = 1
+
+[multimodal]
+model = ""
+base_url = ""
+api_key = ""
+
+[rerank]
+provider = "vllm"
+model = ""
+base_url = ""
+api_key = ""
+
+[memorize]
+mode = "chat" # The first local tier stores user memories without rerank.

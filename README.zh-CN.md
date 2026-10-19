@@ -106,13 +106,14 @@ EverOS 为下列 Agent 与工作流平台提供持久记忆，并已内置于 Ra
 
 ## 快速开始
 
-> 国内默认使用一个阿里云百炼 DashScope API Key，即可启动 EverOS、写入
-> 持久化记忆，并使用完整的文本检索能力。
+> EverOS 的文本 provider 可以使用本地 Ollama，也可以使用阿里云百炼。
+> 本地方案无需百炼 Key；下文先用本地模型完成记忆写入和检索。
 
 ### 前置条件
 
 - Python 3.12+
-- 一个[阿里云百炼 DashScope API Key](https://bailian.console.aliyun.com/)
+- 本地方案：足够运行小型模型的内存，以及可用于首次下载模型的网络；或
+- 云端方案：一个[阿里云百炼 DashScope API Key](https://bailian.console.aliyun.com/)
 
 ### 1. 安装
 
@@ -123,8 +124,8 @@ uv pip install everos
 
 ### 2. 先体验独立 Demo —— 不需要 Key
 
-无需填写 API Key 或启动 server，只需一条命令即可快速体验 EverOS 如何保存并
-召回记忆：
+无需填写 API Key 或启动本地 server，只需一条命令即可快速体验 EverOS 如何保存并
+召回记忆。交互式 Demo 会连接 EverOS 公共中继，因此需要网络；它并不使用下文的本地模型：
 
 ```bash
 # 如果你是通过 package 安装 EverOS：
@@ -139,7 +140,50 @@ ingest -> extract -> index -> recall 的完整流程。
 
 <https://github.com/user-attachments/assets/98cb8e1e-2ca8-4504-b0a6-0b9a040a0a5c>
 
-### 3. 初始化并配置百炼
+### 3. 初始化并配置本地模型（无需百炼 Key）
+
+本地示例使用 Ollama 提供 OpenAI 兼容接口。
+先按 [Ollama 官方 Linux 指南](https://docs.ollama.com/linux) 安装它。在一个终端
+启动服务。如果手动安装在 `~/.local`，先执行
+`export PATH="$HOME/.local/bin:$PATH"`：
+
+```bash
+export OLLAMA_MAX_LOADED_MODELS=1
+export OLLAMA_NUM_PARALLEL=1
+export OLLAMA_CONTEXT_LENGTH=8192
+ollama serve
+```
+
+如果 Ollama 已作为服务运行，先为该服务设置这些环境变量并重启服务，
+不要再同时运行第二个 `ollama serve`。在另一个终端下载模型：
+
+```bash
+ollama pull qwen2.5:3b
+ollama pull qwen3-embedding:0.6b
+```
+
+`qwen2.5:3b` 用于抽取记忆，`qwen3-embedding:0.6b` 产生 1024 维向量，
+与 EverOS 的默认 LanceDB 索引匹配。4 GiB 显存的机器一次加载一个模型、
+每个模型一次只处理一个请求；若显存仍不足，推理可能转到 CPU，速度会下降。
+
+在 EverOS 仓库根目录，使用独立的记忆目录，避免覆盖已有配置和数据：
+
+```bash
+.venv/bin/everos init --root .everos-ollama
+cp examples/local-ollama/everos.toml .everos-ollama/everos.toml
+```
+
+若尚未安装仓库依赖，先运行 `uv sync`；已将 `everos` 安装到系统环境时，
+可把 `.venv/bin/everos` 换成 `everos`。示例配置中的 `api_key = "ollama"`
+仅满足客户端对非空字段的要求，本地 Ollama 不校验它；无需购买或填写真实 Key。
+本地 Ollama 的聊天和 embedding 接口都位于 `http://127.0.0.1:11434/v1`。
+服务启动后继续执行步骤 4 和 5。配置文件见
+[本地 Ollama 示例](examples/local-ollama/everos.toml)。
+
+<details>
+<summary>可选：使用阿里云百炼而非本地模型</summary>
+
+先运行：
 
 ```bash
 everos init
@@ -175,13 +219,19 @@ Embedding 会启用 vector 和 user-hybrid retrieval；DashScope rerank 会进�
 host 仍支持北京地域的 Key；生产环境可以换成对应地域与业务空间的百炼专属 host。
 
 如果希望更换 memory root，可以使用 `everos init --root <path>`。后续命令也要
-传入同一个 `--root <path>`。
+传入同一个 `--root <path>`。云端方案使用默认 root 时，后续命令省略 `--root`。
+
+</details>
 
 ### 4. 启动 EverOS
 
 ```bash
-everos server start
+# 本地方案：
+.venv/bin/everos server start --root .everos-ollama
+# 百炼方案：everos server start
 ```
+
+百炼方案则在此运行对应的 server 命令。
 
 保持服务运行，然后打开第二个 terminal 检查：
 
@@ -189,8 +239,10 @@ everos server start
 curl http://127.0.0.1:8000/health
 ```
 
-确认响应里有 `"status":"ok"`。上面的百炼配置会显示 `llm`、`embed` 和
-`rerank` 三个文本 capability 均可用。
+确认响应里有 `"status":"ok"`。本地配置应显示 `llm`、`embed` 可用；
+`rerank` 不可用是当前两模型方案的预期结果。百炼完整配置则可显示三个文本
+capability 均可用。`/health` 检查 provider 配置，不代表模型已经成功加载；
+还需要完成步骤 5 的真实请求。
 
 ### 5. 写入并搜索第一条记忆
 
@@ -240,29 +292,38 @@ curl -X POST http://127.0.0.1:8000/api/v2/memory/search \
   }'
 ```
 
-响应里应该能看到 Yosemite 相关记忆。完整百炼配置可以直接使用 hybrid search；
-也可以省略 `method` 字段，因为 API 默认就是 hybrid。
+响应里应该能看到 Yosemite 相关记忆。本地方案的用户记忆也可以使用 hybrid
+search；可以省略 `method` 字段，因为 API 默认就是 hybrid。`flush` 完成后，
+向量索引仍可能在后台更新；如果首次搜索返回空列表，等待 `/health` 中
+`cascade.pending` 归零后重试相同请求。
 
 > [!TIP]
 > **第一条记忆已经写入。**
 > 你刚刚把一个事实交给 EverOS，把它整理进可持久化的 Markdown-backed memory，
 > 并通过本地索引把它搜索回来。这就是 EverOS 的核心闭环。
-> 想看看 source of truth？打开 `~/.everos`，直接检查生成的 Markdown 文件。
+> 想看看 source of truth？本地方案打开 `.everos-ollama`，百炼默认方案打开
+> `~/.everos`，直接检查生成的 Markdown 文件。
 
-### 一个百炼 Key 可以使用哪些能力？
+### 本地模型与百炼的能力范围
 
 | 配置 | 可用能力 |
 | --- | --- |
+| 本地 `[llm]` + `[embedding]`（本示例） | 文本记忆写入、Keyword、vector、用户 hybrid 检索；不含 rerank 依赖能力 |
 | 百炼 `[llm]` + `[embedding]` + `[rerank]` | Keyword、vector、hybrid、agentic search；reflection、skill extraction、Knowledge Wiki |
 | 再添加 `[multimodal]` 和 parser extra | 图片、PDF、音频、Office 文件摄取 |
 
 `/health` 会列出缺失的可选能力。如果请求了尚未配置 provider 的功能，API 会
 返回明确的 HTTP 422。
 
+本地方案选用 `memorize.mode = "chat"`，用于用户记忆。Agent hybrid 的默认
+路径、agentic search 和 Knowledge Wiki 需要另行配置 rerank provider；
+EverOS 已支持 vLLM 的 `/v1/rerank` 接口，但在 4 GiB 显存上，应先单独实测
+模型装载和推理速度，再启用这些能力。
+
 > [!NOTE]
-> `everos demo --live` 和步骤 2 的独立 Demo 不一样：它会连接正在运行的 server，
-> 并执行真实的 add / flush / search 流程。它使用 hybrid search，上面的完整百炼
-> 配置可以直接运行。
+> `everos demo --live` 和步骤 2 的独立 Demo 不一样：默认直连 EverOS Cloud，
+> 需要 `EVEROS_CLOUD_API_KEY`。本地服务的真实 add / flush / search 流程请使用
+> 上面步骤 5 的 API 请求。
 
 ### 可选：摄取多模态文件
 
@@ -296,8 +357,8 @@ sudo apt-get install -y libreoffice          # Debian / Ubuntu
 git clone https://github.com/EverMind-AI/EverOS.git
 cd EverOS
 uv sync                              # creates ./.venv and installs deps
-uv run everos demo --plain           # 先体验本地 educational demo；不需要 API keys
-uv run everos init                   # 把一个百炼 DashScope Key 配置到 ~/.everos/everos.toml
+uv run everos demo --plain           # 静态预览；不需要 API Key 或网络
+uv run everos init --root .everos-ollama  # 本地模型的独立 memory root
 
 uv run everos --help
 make test
