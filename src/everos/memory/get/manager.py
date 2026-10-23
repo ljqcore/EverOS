@@ -4,6 +4,7 @@ Hard partition by ``(owner_type, memory_type)`` (validated by
 :class:`GetRequest`):
 
 * ``user`` + ``episode``       → ``data.episodes``
+* ``user`` + ``atomic_fact``   → ``data.atomic_facts``
 * ``user`` + ``profile``       → ``data.profiles`` (one-row KV fetch
   from the ``user_profile`` table; at most one item)
 * ``agent`` + ``agent_case``   → ``data.agent_cases``
@@ -23,11 +24,12 @@ from typing import TYPE_CHECKING, Any
 from everos.component.utils.datetime import to_display_tz
 from everos.core.context import resolve_request_id
 from everos.core.observability.logging import get_logger
-from everos.infra.persistence.index import primary_key
+from everos.infra.persistence.index import all_of, eq, primary_key
 
 from .dto import (
     GetAgentCaseItem,
     GetAgentSkillItem,
+    GetAtomicFactItem,
     GetData,
     GetEpisodeItem,
     GetMemoryType,
@@ -42,6 +44,7 @@ if TYPE_CHECKING:
         AgentCase,
         AgentSkill,
         Episode,
+        AtomicFact,
         IndexRepository,
         UserProfile,
     )
@@ -60,11 +63,13 @@ class GetManager:
         agent_case_repo: IndexRepository[AgentCase],
         agent_skill_repo: IndexRepository[AgentSkill],
         user_profile_repo: IndexRepository[UserProfile],
+        atomic_fact_repo: IndexRepository[AtomicFact] | None = None,
     ) -> None:
         self._ep = episode_repo
         self._case = agent_case_repo
         self._skill = agent_skill_repo
         self._profile = user_profile_repo
+        self._fact = atomic_fact_repo
 
     # ── Public entry ─────────────────────────────────────────────────
 
@@ -78,19 +83,42 @@ class GetManager:
             app_id=req.app_id,
             project_id=req.project_id,
         )
+        native_where = (
+            all_of(where, eq("id", req.memory_id))
+            if req.memory_id is not None
+            else where
+        )
+        page = 1 if req.memory_id is not None else req.page
+        page_size = 1 if req.memory_id is not None else req.page_size
 
         match req.memory_type:
             case GetMemoryType.EPISODE:
                 rows, total = await self._ep.find_where_paginated(
-                    where,
+                    native_where,
                     sort_by=req.sort_by,
                     descending=descending,
-                    page=req.page,
-                    page_size=req.page_size,
+                    page=page,
+                    page_size=page_size,
                 )
                 items = [self._shape_episode(r) for r in rows]
                 data = GetData(
                     episodes=items,
+                    total_count=total,
+                    count=len(items),
+                )
+            case GetMemoryType.ATOMIC_FACT:
+                if self._fact is None:
+                    raise RuntimeError("Atomic Fact repository is not configured.")
+                rows, total = await self._fact.find_where_paginated(
+                    native_where,
+                    sort_by=req.sort_by,
+                    descending=descending,
+                    page=page,
+                    page_size=page_size,
+                )
+                items = [self._shape_atomic_fact(row) for row in rows]
+                data = GetData(
+                    atomic_facts=items,
                     total_count=total,
                     count=len(items),
                 )
@@ -152,6 +180,19 @@ class GetManager:
             subject=row.subject or "",
             episode=row.episode,
             type="Conversation",
+        )
+
+    @staticmethod
+    def _shape_atomic_fact(row: AtomicFact) -> GetAtomicFactItem:
+        return GetAtomicFactItem(
+            id=row.id,
+            user_id=row.owner_id,
+            app_id=row.app_id,
+            project_id=row.project_id,
+            session_id=row.session_id,
+            timestamp=to_display_tz(row.timestamp),
+            parent_id=row.parent_id,
+            fact=row.fact,
         )
 
     @staticmethod

@@ -67,6 +67,7 @@ class ErrorDetail(BaseModel):
     message: str
     timestamp: str
     path: str
+    stage: str | None = None
 
 
 class ErrorResponse(BaseModel):
@@ -86,6 +87,7 @@ def _error_response(
     status_code: int,
     code: ErrorCode,
     message: str,
+    stage: str | None = None,
 ) -> JSONResponse:
     """Build a JSONResponse with the canonical error envelope."""
     body = ErrorResponse(
@@ -95,11 +97,12 @@ def _error_response(
             message=message,
             timestamp=to_iso_format(get_now_with_timezone()),
             path=str(request.url.path),
+            stage=stage,
         ),
     )
     return JSONResponse(
         status_code=status_code,
-        content=body.model_dump(),
+        content=body.model_dump(exclude_none=True),
     )
 
 
@@ -202,6 +205,7 @@ async def infrastructure_handler(
         HTTP_503_SERVICE_UNAVAILABLE,
         ErrorCode.EXTERNAL_SERVICE_UNAVAILABLE,
         str(exc),
+        stage=getattr(exc, "stage", None),
     )
 
 

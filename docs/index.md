@@ -11,6 +11,7 @@ before wiring it into a real workflow.
 
 | Doc | Purpose |
 |---|---|
+| [project-guide.zh-CN.md](project-guide.zh-CN.md) | 中文项目导览：目录、前后端、API 数量、MEMO Vault 当前实现与上手顺序 |
 | [everos-demo.md](everos-demo.md) | `everos demo` — local educational TUI to feel the memory lifecycle before configuring keys |
 
 ## Reference

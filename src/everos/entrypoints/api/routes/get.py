@@ -17,5 +17,5 @@ router = APIRouter(prefix="/memory", tags=["memory"])
 
 @router.post("/get", response_model=GetResponse)
 async def post_get(req: GetRequest) -> GetResponse:
-    """Paginated listing over the requested ``memory_type``."""
+    """List a scoped memory type, with exact Episode / Atomic Fact ID lookup."""
     return await get_service(req)

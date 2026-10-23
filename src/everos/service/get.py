@@ -14,6 +14,7 @@ from everos.core.observability.logging import get_logger
 from everos.infra.persistence.index import (
     agent_case_repo,
     agent_skill_repo,
+    atomic_fact_repo,
     episode_repo,
     user_profile_repo,
 )
@@ -32,6 +33,7 @@ def _get_manager() -> GetManager:
             agent_case_repo=agent_case_repo,
             agent_skill_repo=agent_skill_repo,
             user_profile_repo=user_profile_repo,
+            atomic_fact_repo=atomic_fact_repo,
         )
         logger.info("get_manager_built")
     return _manager

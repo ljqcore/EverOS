@@ -1,0 +1,8 @@
+{"type":"session","version":4,"id":"session-fixture-1","createdAt":1791942853520}
+{"type":"user/message","seq":1,"time":1791942853521,"data":{"role":"user","id":"user-1","content":[{"type":"text","text":"请比较方案甲和方案乙。"}]}}
+{"type":"agent/inbox/spliced","seq":2,"time":1791942853522,"data":{"target":"next-turn","inserted":[{"role":"user","id":"user-1","content":[{"type":"text","text":"请比较方案甲和方案乙。"}]}]}}
+{"type":"assistant/message","seq":3,"time":1791942853523,"data":{"message":{"role":"assistant","id":"assistant-1","content":[{"type":"reasoning","text":"hidden reasoning"},{"type":"text","text":"我会比较两种方案。"},{"type":"tool-call","id":"call-block","name":"read_file","arguments":"{\"path\":\"notes.txt\"}"}]}}}
+{"type":"tool/call","seq":4,"time":1791942853524,"data":{"turn":1,"step":1,"callId":"call-1","name":"read_file","arguments":"{\"path\":\"notes.txt\"}"}}
+{"type":"tool/result","seq":5,"time":1791942853525,"sourceEventSeqs":[4],"data":{"message":{"role":"tool","toolCallId":"call-1","content":[{"type":"text","text":"文件内容"}],"isError":false}}}
+{"type":"user/message","seq":6,"time":1791942853526,"data":{"role":"user","id":"context-1","content":[{"type":"text","text":"Current runtime context. This snapshot supersedes earlier context."}]}}
+{"type":"user/message","seq":7,"time":1791942853527,"data":{"role":"user","id":"user-2","content":[{"type":"text","text":"请比较方案甲和方案乙。"}]}}

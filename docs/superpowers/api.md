@@ -507,12 +507,13 @@ and should be reserved for offline or background workflows.
 | Value | Track | Returned in `data.<plural>` |
 |---|---|---|
 | `"episode"` | user | `data.episodes` — [GetEpisodeItem](#getepisodeitem) |
+| `"atomic_fact"` | user | `data.atomic_facts` — [GetAtomicFactItem](#getatomicfactitem) |
 | `"profile"` | user | `data.profiles` — [GetProfileItem](#getprofileitem) |
 | `"agent_case"` | agent | `data.agent_cases` — [GetAgentCaseItem](#getagentcaseitem) |
 | `"agent_skill"` | agent | `data.agent_skills` — [GetAgentSkillItem](#getagentskillitem) |
 
 `memory_type` must match the requested owner kind: `"episode"` /
-`"profile"` require `user_id`; `"agent_case"` / `"agent_skill"`
+`"atomic_fact"` / `"profile"` require `user_id`; `"agent_case"` / `"agent_skill"`
 require `agent_id`. The mismatching combinations are rejected with
 `422`.
 
@@ -939,6 +940,7 @@ for UI browsing, exports, or filtered scans.
 | `app_id` | `string` *(ScopeId)* | no | `"default"` | — |
 | `project_id` | `string` *(ScopeId)* | no | `"default"` | — |
 | `memory_type` | [GetMemoryType](#getmemorytype) | yes | — | — |
+| `memory_id` | `string \| null` | no | `null` | exact lookup for `episode` / `atomic_fact`, 1–512 characters |
 | `page` | `integer` | no | `1` | `≥ 1` |
 | `page_size` | `integer` | no | `20` | `1..100` |
 | `sort_by` | `"timestamp" \| "updated_at"` | no | `"timestamp"` | — |
@@ -946,15 +948,24 @@ for UI browsing, exports, or filtered scans.
 | `filters` | [FilterNode](#filternode-filter-dsl) `\| null` | no | `null` | — |
 
 **`user_id` / `agent_id`** — **Exactly one** must be set, and it must
-match the track implied by `memory_type` (`"episode"` / `"profile"`
-require `user_id`; `"agent_case"` / `"agent_skill"` require
+match the track implied by `memory_type` (`"episode"` / `"atomic_fact"` /
+`"profile"` require `user_id`; `"agent_case"` / `"agent_skill"` require
 `agent_id`).
 
 **`app_id` / `project_id`** — Scope identifiers.
 
 **`memory_type`** — Which item kind to list; see
 [GetMemoryType](#getmemorytype). The route populates exactly one of
-the four arrays in `data` based on this value.
+the five arrays in `data` based on this value.
+
+**`memory_id`** — Optional exact native ID lookup for `episode` and
+`atomic_fact`. It is combined with the required owner, owner type, app,
+and project predicates; it cannot bypass scope or be supplied through
+the filter DSL. When set, the endpoint returns at most one item as page
+1, regardless of `page` / `page_size`. It is not supported for Profile,
+Agent Case, or Agent Skill. Profile remains a single scoped aggregate
+row; consumers needing one candidate-published profile entry must match
+its `memo_vault_candidate_id` inside the returned profile data.
 
 > `"profile"` is a single-row lookup, not a list: an owner has at most
 > one profile. `page`, `page_size`, `filters`, `sort_by` and
@@ -980,13 +991,14 @@ predicate-based filtering before pagination.
 
 #### Response body
 
-`200 OK` returns a SuccessEnvelope wrapping `GetData`. The four
+`200 OK` returns a SuccessEnvelope wrapping `GetData`. The five
 arrays are always present so client code can iterate without
 branching on `memory_type`; exactly one is populated.
 
 | Field | Type | Notes |
 |---|---|---|
 | `episodes` | `array<GetEpisodeItem>` | Populated when `memory_type="episode"` |
+| `atomic_facts` | `array<GetAtomicFactItem>` | Populated when `memory_type="atomic_fact"` |
 | `profiles` | `array<GetProfileItem>` | Populated when `memory_type="profile"` |
 | `agent_cases` | `array<GetAgentCaseItem>` | Populated when `memory_type="agent_case"` |
 | `agent_skills` | `array<GetAgentSkillItem>` | Populated when `memory_type="agent_skill"` |
@@ -1017,6 +1029,23 @@ sub-facts).
 > under two projects (each project keeps its own daily files and sequence);
 > address a row globally by `(app_id, project_id, id)`. Within one response
 > ids never repeat, because a request is always scoped to one project.
+
+#### GetAtomicFactItem
+
+One independently listed Atomic Fact. `id` is the exact native memory
+ID and `fact` is the complete canonical text. Owner, app, and project
+fields reflect the hard scope predicates applied by `/get`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `string` | Native Atomic Fact memory ID |
+| `user_id` | `string` | Owner |
+| `app_id` | `string` | Scope |
+| `project_id` | `string` | Scope |
+| `session_id` | `string \| null` | Originating session, if present |
+| `timestamp` | `string` | ISO-8601 with timezone offset |
+| `parent_id` | `string` | Source MemCell ID |
+| `fact` | `string` | Full fact text |
 
 #### GetProfileItem
 
@@ -1217,3 +1246,16 @@ the eventual-consistency caveat, why a field is shaped the way it is.
 For higher-level context (cascade design, DDD layering, on-disk
 layout), see [architecture.md](architecture.md) and
 [storage_layout.md](storage_layout.md).
+
+## MEMO Vault 导入与 UMIF 状态（独立服务）
+
+MEMO Vault 使用独立的 FastAPI 服务与端口。以下路径均以该服务的 `/api/v1` 为前缀，不属于 EverOS 核心 API：
+
+| 方法与路径 | 用途 |
+|---|---|
+| `POST /imports/preview` | 检查导入文件，转换并校验 UMIF，返回预览和跳过计数；不归档。DeepSeek Harness v4 支持 `.jsonl` 或仅含 `session.v4.jsonl` 的 ZIP。 |
+| `POST /imports/commit` | 归档原文件与 UMIF 包，并投影到 Vault 消息/工具轨迹表。 |
+| `GET /imports/{batch_id}/status` | 返回抽取状态、失败阶段、安全错误码和 UMIF 校验摘要。 |
+| `POST /imports/{batch_id}/extract` | 只将可用的 user/assistant 消息发送给候选抽取接口；候选仍需人工审核。 |
+
+UMIF 核心文件为 `manifest.json`、`principals.jsonl`、`sessions.jsonl` 和 `events.jsonl`；包目录内还有导入报告。原始 ZIP 保留在同一批次证据目录，数据库 `umif_record_map` 保存源记录与 Vault 行的映射。候选抽取失败不会删除证据或 UMIF 包。

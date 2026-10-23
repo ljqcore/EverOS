@@ -6,10 +6,10 @@ ranked retrieval):
 
 * ``owner_type`` × ``memory_type`` are strictly paired:
 
-  - ``user`` → ``episode`` | ``profile``
+  - ``user`` → ``episode`` | ``atomic_fact`` | ``profile``
   - ``agent`` → ``agent_case`` | ``agent_skill``
 
-* ``GetData`` always contains four kind arrays for symmetry with
+* ``GetData`` always contains five kind arrays for symmetry with
   ``/search``; only the requested kind is populated. ``total_count``
   is the predicate's true match count; ``count`` is the page size
   actually returned.
@@ -33,18 +33,19 @@ from everos.memory.search import FilterNode
 
 
 class GetMemoryType(StrEnum):
-    """The four kinds enumerated by ``/get``.
+    """The five kinds enumerated by ``/get``.
 
-    ``episode`` and ``profile`` are user-owned; ``agent_case`` and
-    ``agent_skill`` are agent-owned. Cross-pairs are rejected by
+    ``episode``, ``atomic_fact``, and ``profile`` are user-owned;
+    ``agent_case`` and ``agent_skill`` are agent-owned. Cross-pairs are rejected by
     :meth:`GetRequest._validate_owner_memory_type_pair`.
 
-    Naming note: all four values use the bare kind name (no
+    Naming note: all five values use the bare kind name (no
     ``_memory`` suffix) and match the LanceDB table name + everalgo
     type name for that kind.
     """
 
     EPISODE = "episode"
+    ATOMIC_FACT = "atomic_fact"
     PROFILE = "profile"
     AGENT_CASE = "agent_case"
     AGENT_SKILL = "agent_skill"
@@ -67,13 +68,17 @@ class GetRequest(BaseModel):
 
     user_id: str | None = Field(default=None, min_length=1)
     agent_id: str | None = Field(default=None, min_length=1)
-    """Memory owner — provide ``user_id`` for ``episode`` / ``profile`` or
-    ``agent_id`` for ``agent_case`` / ``agent_skill``; exactly one must be set."""
+    """Memory owner — provide ``user_id`` for ``episode`` / ``atomic_fact`` /
+    ``profile`` or ``agent_id`` for ``agent_case`` / ``agent_skill``; exactly
+    one must be set."""
     app_id: str = "default"
     project_id: str = "default"
     """App / project scope (default ``"default"``). Pinned into the query
     ``where`` so a listing never crosses into another space's rows."""
     memory_type: GetMemoryType
+    memory_id: str | None = Field(default=None, min_length=1, max_length=512)
+    """Optional exact native ID selector for ``episode`` / ``atomic_fact``.
+    It is always combined with the owner, app, and project scope predicates."""
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=100)
     sort_by: Literal["timestamp", "updated_at"] = "timestamp"
@@ -96,7 +101,11 @@ class GetRequest(BaseModel):
     def _validate_owner_memory_type_pair(self) -> Self:
         # Runs after the xor validator (declaration order), so ``owner_type``
         # is well-defined here.
-        user_kinds = {GetMemoryType.EPISODE, GetMemoryType.PROFILE}
+        user_kinds = {
+            GetMemoryType.EPISODE,
+            GetMemoryType.ATOMIC_FACT,
+            GetMemoryType.PROFILE,
+        }
         agent_kinds = {GetMemoryType.AGENT_CASE, GetMemoryType.AGENT_SKILL}
         if self.owner_type == "user" and self.memory_type not in user_kinds:
             raise ValueError(
@@ -107,6 +116,13 @@ class GetRequest(BaseModel):
             raise ValueError(
                 f"memory_type {self.memory_type.value!r} is not valid "
                 "when agent_id is set"
+            )
+        if self.memory_id is not None and self.memory_type not in {
+            GetMemoryType.EPISODE,
+            GetMemoryType.ATOMIC_FACT,
+        }:
+            raise ValueError(
+                "memory_id is only supported for episode and atomic_fact"
             )
         return self
 
@@ -154,6 +170,21 @@ class GetProfileItem(BaseModel):
     profile_data: dict[str, object]
 
 
+class GetAtomicFactItem(BaseModel):
+    """One user-owned Atomic Fact row."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    user_id: str
+    app_id: str = "default"
+    project_id: str = "default"
+    session_id: str | None = None
+    timestamp: _dt.datetime
+    parent_id: str
+    fact: str
+
+
 class GetAgentCaseItem(BaseModel):
     """Agent case listing item — always agent-scoped."""
 
@@ -194,7 +225,7 @@ class GetAgentSkillItem(BaseModel):
 class GetData(BaseModel):
     """Body of ``response.data``.
 
-    All four arrays are always present so client code can iterate
+    All five arrays are always present so client code can iterate
     without branching on ``memory_type``; the route populates exactly
     one.
     """
@@ -202,6 +233,7 @@ class GetData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     episodes: list[GetEpisodeItem] = Field(default_factory=list)
+    atomic_facts: list[GetAtomicFactItem] = Field(default_factory=list)
     profiles: list[GetProfileItem] = Field(default_factory=list)
     agent_cases: list[GetAgentCaseItem] = Field(default_factory=list)
     agent_skills: list[GetAgentSkillItem] = Field(default_factory=list)
